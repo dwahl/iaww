@@ -1,7 +1,7 @@
 <template>
 <v-slide-y-transition group tag="div">
   <p v-for="event in viewedEvents" :key="event.at" class="mb-1">
-    <span class="font-weight-bold" :class="event.player.color+'--text'">
+    <span :class="event.player.color+'--text font-weight-bold player'" v-ripple @click="onEmpire(event)">
       {{event.player.name}}
     </span>
     <span v-if="'pass'===event.type">
@@ -47,19 +47,22 @@
 </template>
 
 <script>
+import {
+  mapGetters
+} from 'vuex'
+
+
 export default {
-  props: {
-    events: {
-      type: Array,
-      required: true
-    }
-  },
   data() {
     return {
-      viewed: 15
+      viewed: 10
     };
   },
   computed: {
+    ...mapGetters({
+      events: 'game/events',
+    }),
+
     viewedEvents() {
       const events = [...this.events];
       events.reverse();
@@ -67,6 +70,20 @@ export default {
         events.pop();
       return events;
     }
+  },
+  methods: {
+    onEmpire(evt) {
+      this.$emit('empire', {
+        index: evt.player.index
+      });
+    }
   }
 }
 </script>
+
+<style scoped>
+.player {
+    cursor: pointer;
+    display: inline-block;
+}
+</style>

@@ -1,78 +1,81 @@
 <template>
 <v-row dense class="ma-1">
-  <AffectationDialog @action="onAction" :available="myEmpire?myEmpire.available:{}" />
+  <AffectationDialog @action="onAction" :available="available" />
   <SupremacyDialog @action="onAction" />
 
-  <v-col lg="7" cols="12">
-    <v-card>
-      <v-card-title class="subtitle-1 pa-2" :class="current===myself?'grey darken-3':null">
-        <v-btn icon @click="viewNext(-1)">
-          <v-icon>mdi-chevron-left</v-icon>
-        </v-btn>
-        <v-btn icon @click="viewSelf" :disabled="current===myself">
-          <v-icon class="mr-2">mdi-castle</v-icon>
-        </v-btn>
-        <span class="font-weight-bold" :class="currentEmpire.playerColor+'--text'">
-          {{currentEmpire.player}}
-        </span>
-        <v-btn icon @click="viewNext(1)">
-          <v-icon>mdi-chevron-right</v-icon>
-        </v-btn>
+  <v-fab-transition>
+    <v-btn v-if="this.scroll>0" fixed fab bottom left small color="accent" @click="scrollToTop">
+      <v-icon>mdi-chevron-up</v-icon>
+    </v-btn>
+  </v-fab-transition>
 
-        <v-spacer />
-        <fade-text class="font-weight-light" :k="clock" :text="currentStatus" />
-        <v-spacer />
+  <v-col :lg="monoLayout?7:10" cols="12">
+    <v-row dense>
+      <v-col cols="12" class="mt-0 pt-0">
+        <GameStatusHeader>
+          <v-btn-toggle v-model="layout" class="mr-1" dense group>
+            <v-btn small text>
+              <v-icon>mdi-fit-to-page-outline</v-icon>
+            </v-btn>
+          </v-btn-toggle>
+        </GameStatusHeader>
+      </v-col>
 
-        <template v-if="!done">
-          Turn
-          <fade-text class="ml-1 mr-1" :text="turn" />
-          -
-          <fade-text class="ml-1 mr-1" :text="phase" />
-          <v-fade-transition mode="out-in">
-            <Token v-if="step" :key="step" class="ml-2" alt :type="step" :size="25" />
-          </v-fade-transition>
-        </template>
-      </v-card-title>
+      <template v-if="monoLayout">
+        <v-col cols="12">
+          <SingleEmpireView @empire="viewEmpire" :empire="empire" />
+        </v-col>
+      </template>
 
-      <EmpireCards :currentEmpire="currentEmpire" @action="onAction" component="v-card-text" />
+      <template v-else>
+        <v-col cols="12">
+          <EmpireCardView :empire="myself">
+              <EmpireActions component="v-card-actions" />
+          </EmpireCardView>
+        </v-col>
 
-      <v-card-actions>
-        <v-tooltip v-if="action.pass" bottom>
-          <template v-slot:activator="{ on }">
-            <v-btn v-on="on" @click="pass">Pass</v-btn>
-          </template>
-          <span>End this step</span>
-        </v-tooltip>
+        <v-col cols="6" v-for="i in othersEmpire" :key="i">
+          <EmpireCardView :empire="i" />
+        </v-col>
 
-        <v-tooltip v-if="action.convert" bottom>
-          <template v-slot:activator="{ on }">
-            <v-btn class="ml-1" v-on="on" @click="convert">Convert</v-btn>
-          </template>
-          <span>Put all the remaining to your empire card</span>
-        </v-tooltip>
+        <v-col v-if="last>=0" cols="12">
+          <EmpireCardView :empire="last"/>
+        </v-col>
+      </template>
 
-        <v-tooltip v-if="action.undo" bottom>
-          <template v-slot:activator="{ on }">
-            <v-btn class="ml-1" v-on="on" @click="undo">Undo</v-btn>
-          </template>
-          <span>Undo all the actions done in this step, reset to the situation add the begining of the current step</span>
-        </v-tooltip>
-      </v-card-actions>
-    </v-card>
+    </v-row>
   </v-col>
 
-  <v-col lg="2" md="6" cols="12">
+
+
+  <template v-if="monoLayout">
+    <v-col lg="2" md="6" cols="12">
+      <v-card>
+        <v-card-text>
+          <EmpireTableStats @empire="viewEmpire" />
+        </v-card-text>
+      </v-card>
+    </v-col>
+
+    <v-col lg="3" md="6" cols="12">
+      <v-card>
+        <v-card-text>
+          <EventList @empire="viewEmpire" />
+        </v-card-text>
+      </v-card>
+    </v-col>
+  </template>
+
+  <v-col v-else lg="2" cols="12">
     <v-card>
       <v-card-text>
-        <EmpireTableStats :empires="empires" :step="step" @empire="viewEmpire" />
+        <EmpireTableStats @empire="viewEmpire" />
       </v-card-text>
     </v-card>
-  </v-col>
 
-  <v-col lg="3" md="6" cols="12">
-    <v-card>
+    <v-card class="mt-2">
       <v-card-text>
-        <EventList :events="events" />
+        <EventList @empire="viewEmpire" />
       </v-card-text>
     </v-card>
   </v-col>
@@ -81,210 +84,15 @@
 
 <script>
 import moment from 'moment';
-const PLAYERS_COLOR = ["cyan", "light-green", "pink", "amber", "lime"];
 
-function createEmptyEmpire(index, wop) {
+import {
+  easeInOutCubic
+} from 'vuetify/es5/services/goto/easing-patterns'
 
-  var stats = {
-    material: 0,
-    energy: 0,
-    science: 0,
-    gold: 0,
-    discovery: 0,
-    krystalium: 0,
-    raw: 0,
-    businessman: 0,
-    general: 0
-  };
-
-  if (wop) {
-    stats = {
-      material: 0,
-      energy: 0,
-      science: 0,
-      gold: 0,
-      discovery: 0,
-      deltakrystalium: 0,
-      deltabusinessman: 0,
-      deltageneral: 0,
-      krystalium: 0,
-      raw: 0,
-      businessman: 0,
-      general: 0
-    }
-  }
-
-  return {
-    score: 0,
-    empire: {
-      builded: [],
-      inProduction: []
-    },
-    player: null,
-    playerColor: PLAYERS_COLOR[index % PLAYERS_COLOR.length],
-    inHand: [],
-    stats,
-    drafteds: [],
-    available: {
-      material: 0,
-      energy: 0,
-      science: 0,
-      gold: 0,
-      discovery: 0,
-      krystalium: 0,
-      businessman: 0,
-      general: 0
-    },
-    done: false
-  };
-}
-
-function wrapCard(card, dictionnary, cardActions) {
-  const id = card.id;
-  const actions = (cardActions || []).find(a => a.targetId === id);
-  const def = dictionnary.find(d => d.name === card.name);
-  var slots = null;
-
-  if (card.slots) {
-    const filled = card.slots.filter(s => s.status !== 'EMPTY').length
-    slots = {
-      values: card.slots,
-      filled,
-      total: card.slots.length
-    };
-  }
-
-  return {
-    id,
-    actions: actions != null ? actions.actions : [],
-    label: def.label,
-    def,
-    slots
-  }
-}
-
-function mapCards(srcs, targets, dictionnary, cardActions) {
-  targets.splice(0, targets.length);
-  if (srcs) {
-    srcs.forEach(item => {
-      targets.push(wrapCard(item, dictionnary, cardActions));
-    });
-  }
-}
-
-
-function mapEmpire(src, target, dictionnary, actions) {
-  mapCards(src.inHand, target.inHand, dictionnary, actions);
-  mapCards(src.drafteds, target.drafteds, dictionnary, actions);
-  mapCards(src.empire.builded, target.empire.builded, dictionnary, actions);
-  mapCards(src.empire.inProduction, target.empire.inProduction, dictionnary, actions);
-  target.score = src.score;
-  target.done = src.done;
-  target.player = src.player.label;
-  target.playerId = src.player.name;
-
-  Object.keys(target.stats).forEach(key => {
-    target.stats[key] = src.stats[key.toUpperCase()] || 0
-  });
-  target.stats.raw = src.empire.storedRaw;
-
-  const srcAvailable = src.available || {};
-  Object.keys(target.available).forEach(key => {
-    target.available[key] = srcAvailable[key.toUpperCase()] || 0
-  });
-}
-
-function mapEvent(evt, empires, dictionnary) {
-  var out = {
-    at: evt.at,
-    player: {
-      name: empires[evt.player].player,
-      color: empires[evt.player].playerColor
-    },
-    type: evt.event.type
-  }
-
-  if ("draft" === out.type || "move" === out.type) {
-    out.card = wrapCard(evt.event.card, dictionnary).def;
-  } else if ("recycle" === out.type || "recycle_prod" === out.type) {
-    out.krystaliumDelta = evt.event.krystaliumDelta;
-    out.quantity = evt.event.quantity;
-    if (evt.event.recycled) {
-      out.type = "recycle_card";
-      out.card = wrapCard(evt.event.recycled, dictionnary).def;
-    }
-  } else if ("affect" === out.type) {
-    out.card = wrapCard(evt.event.inProduction, dictionnary).def;
-    if (evt.event.recycled) {
-      out.recycled = wrapCard(evt.event.recycled, dictionnary).def;
-    }
-    out.builded = !!evt.event.builded;
-    out.tokens = Object.keys(evt.event.affected).map(key => evt.event.affected[key]);
-  } else if ("supremacy" === out.type) {
-    out.gain = evt.event.gain;
-  }
-
-  return out;
-}
-
-function mapDictionnary(entry) {
-  const out = { ...entry,
-    bonus: []
-  };
-
-  const matchers = out.name.match(/empire\/(.*)/)
-
-  if (matchers) {
-    const name = matchers[1];
-    const ename = name.match(/(.*)_.*/);
-    if (ename)
-      out.label = ename[1];
-    else
-      out.label = "empire";
-  } else
-    out.label = out.name.replace(/_/g, ' ');
-
-  if (entry.bonus) {
-    const matches = entry.bonus.match(/(\w+)\*(\d+)/);
-    if (matches) {
-      const type = matches[1];
-      const count = parseInt(matches[2]);
-      for (var i = 0; i < count; ++i)
-        out.bonus.push(type);
-    } else {
-      out.bonus.push(entry.bonus);
-    }
-  }
-
-  if (out.produce) {
-    const values = out.produce.values;
-
-    out.produce = Object.keys(values).map(key => {
-      const obj = values[key];
-      return {
-        type: key,
-        ...obj
-      };
-    });
-  }
-  if (out.cost) {
-    out.cost = out.cost.split(", ").flatMap(c => {
-      const matches = c.match(/(\w+)\*(\d+)/);
-      if (matches) {
-        const type = matches[1];
-        const count = parseInt(matches[2]);
-        const out = [];
-        for (var i = 0; i < count; ++i)
-          out.push(type);
-        return out;
-      } else {
-        return [c];
-      }
-    })
-  }
-
-  return out;
-}
+import {
+  mapActions,
+  mapGetters
+} from 'vuex';
 
 export default {
 
@@ -295,96 +103,108 @@ export default {
     }
   },
 
-  methods: {
-    sendAction(name, action) {
-      this.$stomp.publish(`/app/game/${this.game}/${name}`, action);
+  data() {
+
+    const layout = localStorage.getItem('game_layout');
+
+    return {
+      subs: [],
+      scroll: 0,
+      lastSync: moment(),
+      empire: -1,
+      layout: (layout === '' || layout === null) ? undefined : Number(layout)
+    }
+  },
+
+  computed: {
+    available() {
+      return this.loaded ? this.empires[this.myself].available : {}
     },
 
-    clearInteraction() {
-      const recycleToProduction = this.action.recycleToProduction;
-      recycleToProduction.active = false;
-      recycleToProduction.src = null;
-      recycleToProduction.targets.splice(0, recycleToProduction.targets.length);
-
-      const affectation = this.action.affectation;
-      affectation.active = false;
-      affectation.src = null;
-      affectation.slots = {};
+    monoLayout() {
+      return this.layout === undefined || this.layout === null;
     },
 
-    pass() {
-      this.onAction({
-        parent: {
-          action: 'pass'
+    loaded() {
+      return this.empires && this.myself >= 0;
+    },
+
+    othersEmpire() {
+      const out = [];
+      if (this.loaded) {
+        const len = this.empires.length;
+        if (len >= 3) {
+          out.push(this.next(-1));
+          out.push(this.next(1));
+
+          if (len >= 5) {
+            out.push(this.next(-2));
+            out.push(this.next(2));
+          }
         }
-      });
-    },
-
-    undo() {
-      this.onAction({
-        parent: {
-          action: 'undo'
-        }
-      });
-    },
-
-    convert() {
-      this.onAction({
-        parent: {
-          action: 'convert'
-        }
-      });
-    },
-
-
-
-    onAction(event) {
-      const name = event.parent.action;
-      const action = event.action;
-
-      const recycleToProduction = this.action.recycleToProduction;
-      if ('recycleToProduction' === name) {
-        recycleToProduction.active = true;
-        recycleToProduction.src = action.targetId;
-        Array.prototype.push.apply(recycleToProduction.targets, event.parent.targets);
-      } else if ('choose' === name) {
-        this.action.ready = false;
-        this.sendAction('recycleToProduction', {
-          targetId: recycleToProduction.src,
-          productionId: action.targetId
-        });
-        this.clearInteraction();
-      } else if ('affectation' === name) {
-        const id = event.action.targetId;
-        const found = this.myEmpire.empire.inProduction.find(c => c.id === id);
-
-        const affectation = this.action.affectation;
-        affectation.active = true;
-        affectation.src = found;
-        affectation.slots = event.parent.slots;
-      } else if ('proceedAffectation' === name) {
-        this.action.ready = false;
-        this.sendAction('affectation', action);
-        this.clearInteraction();
-      } else {
-        if ('cancel' !== name) {
-          this.action.ready = false;
-          this.sendAction(name, action);
-        }
-        this.clearInteraction();
       }
+
+      return out;
     },
 
-    viewNext(direction) {
-      this.current = (this.current + direction + this.empires.length) % this.empires.length;
+
+
+    last() {
+      if (this.loaded) {
+        const len = this.empires.length;
+
+        if (2 === len) {
+          return this.next(1);
+        } else if (4 === len) {
+          return this.next(2);
+        }
+      }
+
+      return -1;
     },
 
-    viewSelf() {
-      this.current = this.myself;
+    ...mapGetters({
+      empires: 'game/empires',
+      turnStatus: 'game/turnStatus',
+      loaded: 'game/loaded',
+      myself: 'game/myself'
+    })
+  },
+
+  methods: {
+    ...mapActions({
+      receiveData: 'game/receive',
+      onAction: 'game/action'
+    }),
+
+    handleScroll() {
+      this.scroll = window.scrollY || window.scrollTop;
     },
 
     viewEmpire(event) {
-      this.current = event.index;
+      this.empire = event.index;
+
+      if (!this.monoLayout) {
+        const dest = "#empire_" + this.empire;
+        this.$vuetify.goTo(dest, {
+          duration: 300,
+          offset: 0,
+          easing: easeInOutCubic
+        })
+      }
+    },
+
+    scrollToTop() {
+      this.$vuetify.goTo(0, {
+        duration: 300,
+        offset: 0,
+        easing: easeInOutCubic
+      })
+    },
+
+    next(delta) {
+      const len = this.empires.length;
+      return (this.myself + delta + len) % len;
     },
 
     keepSessionAlive() {
@@ -398,147 +218,34 @@ export default {
 
     receive(data) {
       this.keepSessionAlive();
-
-      if (this.clock < data.clock) {
-        if (data.dictionnary != null) {
-          this.dictionnary.splice(0, this.dictionnary.length);
-          Array.prototype.push.apply(this.dictionnary, data.dictionnary.map(mapDictionnary));
-          this.wop = data.wop;
-          this.empires.splice(0, this.empires.length);
-        }
-
-        this.action.ready = true;
-        this.done = data.terminated;
-        this.clock = data.clock;
-        this.turn = data.turn;
-        this.phase = data.phase;
-        this.step = data.step;
-        this.winner = data.winner;
-
-        const myself = data.myself;
-
-        if (this.myself < 0) {
-          this.myself = myself;
-          this.current = myself;
-        }
-
-        const empires = data.empires;
-        const length = empires.length;
-        while (this.empires.length < empires.length) {
-          this.empires.push(createEmptyEmpire(this.empires.length, this.wop));
-        }
-
-        const actions = (data.actions || {});
-        this.action.pass = actions.pass || false;
-        this.action.supremacy = actions.supremacy || false;
-        this.action.convert = actions.convert || false;
-        this.action.undo = actions.undo || false;
-        const cardsActions = actions.cards;
-        for (var i = 0; i < length; ++i) {
-          mapEmpire(empires[i], this.empires[i], this.dictionnary, myself === i ? cardsActions : null);
-        }
-
-        const newEvents = data.events.map(event => mapEvent(event, this.empires, this.dictionnary));
-        this.events.splice(0, this.events.length);
-        Array.prototype.push.apply(this.events, newEvents);
-      }
-    },
-  },
-
-  provide() {
-    return {
-      action: this.action
-    };
-  },
-
-  data() {
-    return {
-      subs: [],
-      clock: -1,
-      lastSync: moment(),
-      turn: 0,
-      step: null,
-      phase: null,
-      myself: -1,
-      current: 0,
-      done: false,
-      wop: false,
-      winner: -1,
-      action: {
-        ready: true,
-        pass: false,
-        undo: false,
-        convert: false,
-        supremacy: false,
-        recycleToProduction: {
-          active: false,
-          src: null,
-          targets: []
-        },
-        affectation: {
-          active: false,
-          src: null,
-          slots: {}
-        }
-      },
-      events: [],
-      empires: [createEmptyEmpire(0)],
-      dictionnary: []
+      this.receiveData(data);
     }
   },
 
-  computed: {
-    loaded() {
-      return this.clock >= 0;
+  watch: {
+    myself(newValue) {
+      this.empire = newValue;
     },
-    currentEmpire() {
-      return this.empires[this.current];
-    },
-    myEmpire() {
-      if (this.myself < 0)
-        return null;
-      return this.empires[this.myself];
-    },
-    currentStatus() {
-
-      if (this.done) {
-        var result = "Game is terminated without winnner";
-        if (this.winner >= 0) {
-          const player = this.empires[this.winner].player;
-          result = ` ${player} has won !`;
-        }
-
-        return result;
-      }
-
-      if (this.myEmpire) {
-        if (this.myEmpire.done)
-          return "Waiting for other players";
-
-        if ("DRAFT" === this.phase) {
-          return "Choose a card to draft";
-        }
-
-        if ("PLANNING" === this.phase) {
-          return "Set up your production line";
-        }
-
-        if ("PRODUCTION" === this.phase) {
-          return "Affect your resources";
-        }
-      }
-      return null;
+    layout(newValue) {
+      localStorage.setItem('game_layout', newValue === undefined ? '' : newValue);
     }
   },
 
   mounted() {
+    this.$store.dispatch('game/start', this.game);
     [`/app/game/${this.game}`, `/user/game/${this.game}`].forEach(item => {
       this.subs.push(this.$stomp.subscribe(item, this.receive));
     });
+    window.addEventListener('scroll', this.handleScroll);
+    this.scrollToTop();
+
+
   },
 
   unmounted() {
+    this.$store.dispatch('game/reset');
     this.subs.forEach(s => s.unsubscribe());
+    window.removeEventListener('scroll', this.handleScroll);
   }
 };
 </script>
