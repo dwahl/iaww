@@ -43,6 +43,8 @@ public class ProviderPrincipalConverter {
 			id = user.getAttribute("sub");
 		} else if ("github".equals(client)) {
 			id = user.getAttribute("login");
+		} else if ("facebook".equals(client)) {
+			id = user.getAttribute("id");
 		}
 		return new ProviderPrincipal(id + "@" + client, user.getAttribute("name"), client);
 
