@@ -44,9 +44,13 @@ public class GameAutomatsBuilder {
 		TransitionNode<GameInfo> initial = builder.auto("initial");
 
 		TransitionNode<GameInfo> nextTurn = builder.auto("nextTurn");
-		nextTurn.updateEntry(this::nextTurn);
+		boolean multiplayer = nbPlayers > 1;
+		if (multiplayer)
+			nextTurn.updateEntry(this::nextTurn);
+		else
+			nextTurn.updateEntry(this::nextTurnSinglePlayer);
 
-		Node<GameInfo> draft = builder.node(DRAFT_STATE);
+		Node<GameInfo> draft = multiplayer ? builder.node(DRAFT_STATE) : null;
 		Node<GameInfo> planning = builder.node(PLANNING_STATE);
 		Node<GameInfo> production = builder.node(PRODUCTION_STATE);
 
@@ -55,12 +59,16 @@ public class GameAutomatsBuilder {
 
 		eog.when(this::stillPlaying, nextTurn).otherwise(end);
 
-		draft(draft, nbPlayers, planning);
+		if (multiplayer)
+			draft(draft, nbPlayers, planning);
 		planning(planning, nbPlayers, production);
 		production(production, nbPlayers, krystaliumStep, eog);
 
 		initial.to(nextTurn);
-		nextTurn.to(draft);
+		if (multiplayer)
+			nextTurn.to(draft);
+		else
+			nextTurn.to(planning);
 
 		return builder.build(id);
 	}
@@ -90,13 +98,40 @@ public class GameAutomatsBuilder {
 	}
 
 	private void planning(Node<GameInfo> planning, int nbPlayers, Edge production) {
+
+		boolean multiplayer = nbPlayers > 1;
+
+		if (multiplayer) {
+			TransitionNode<GameInfo> init = createPlanning(planning, nbPlayers, false, production);
+			init.updateEntry(this::startPlanning);
+		} else {
+
+			Node<GameInfo> first = planning.node("first");
+			Node<GameInfo> second = planning.node("second");
+
+			TransitionNode<GameInfo> firstI = createPlanning(first, nbPlayers, true, second);
+			firstI.updateEntry(this::startSinglePlayerPlanning);
+
+			TransitionNode<GameInfo> secondI = createPlanning(second, nbPlayers, false, production);
+			secondI.updateEntry(this::startSinglePlayerPlanning);
+		}
+
+	}
+
+	private TransitionNode<GameInfo> createPlanning(Node<GameInfo> planning, int nbPlayers, boolean auto,
+			Edge production) {
 		TransitionNode<GameInfo> init = planning.auto("init");
-		init.updateEntry(this::startPlanning);
-
-		Region<GameInfo> players = planning.region(PLAYERS_STATE, nbPlayers).merge(this::dispatch);
+		Region<GameInfo> players = playersState(planning, nbPlayers);
 		init.to(players);
+		if (auto)
+			singlePlayerPlanning(players, production);
+		else
+			playableRegion(players, production);
+		return init;
+	}
 
-		playableRegion(players, production);
+	private Region<GameInfo> playersState(Node<GameInfo> node, int nbPlayers) {
+		return node.region(PLAYERS_STATE, nbPlayers).merge(this::dispatch);
 	}
 
 	private void production(Node<GameInfo> production, int nbPlayers, boolean krystaliumStep, Edge next) {
@@ -149,7 +184,7 @@ public class GameAutomatsBuilder {
 			return started;
 		});
 
-		Region<GameInfo> players = production.region(PLAYERS_STATE, nbPlayers).merge(this::dispatch);
+		Region<GameInfo> players = playersState(production, nbPlayers);
 		init.to(players);
 
 		TransitionNode<GameInfo> end = production.auto("end");
@@ -163,7 +198,7 @@ public class GameAutomatsBuilder {
 	private void scienceProductionStep(Node<GameInfo> production, Token step, int nbPlayers, Edge next) {
 		Node<GameInfo> init = production.node("init");
 		Region<GameInfo> supremacy = production.region("supremacy", nbPlayers).merge(this::dispatch);
-		Region<GameInfo> players = production.region(PLAYERS_STATE, nbPlayers).merge(this::dispatch);
+		Region<GameInfo> players = playersState(production, nbPlayers);
 
 		init.updateEntry((container, evt) -> container.startProductionStep(step));
 		init.callbackEntry((i, evt) -> {
@@ -214,8 +249,29 @@ public class GameAutomatsBuilder {
 		waiting.callbackExit(this::mergePayload);
 	}
 
+	private void singlePlayerPlanning(Region<GameInfo> region, Edge next) {
+		Node<GameInfo> input = region.node("input");
+		Node<GameInfo> waiting = input.node(WAITING_STATE);
+		Choice<GameInfo> choice = input.choice("check");
+
+		Edge joinPoint = region.joinTo(next);
+
+		waiting.event(PLAY_EVENT, choice).guard(this::acceptDispatchAction);
+		waiting.callbackExit(this::mergePayload);
+
+		choice.when(this::hasDoneSinglePlayerPlanning, joinPoint).otherwise(waiting);
+	}
+
+	private boolean hasDoneSinglePlayerPlanning(Instance<GameInfo> i, Transition t) {
+		return i.getParent().get(GameInfo::singlePlayerDraftedEmpty);
+	}
+
 	private GameInfo startPlanning(GameInfo container, EventMsg msg) {
 		return container.startPlanning();
+	}
+
+	private GameInfo startSinglePlayerPlanning(GameInfo container, EventMsg msg) {
+		return container.startSinglePlayerPlanning();
 	}
 
 	private boolean isDoneDrafting(Instance<GameInfo> instance, Transition transition) {
@@ -246,6 +302,10 @@ public class GameAutomatsBuilder {
 
 	private GameInfo nextTurn(GameInfo game, EventMsg msg) {
 		return game.nextTurn();
+	}
+
+	private GameInfo nextTurnSinglePlayer(GameInfo game, EventMsg msg) {
+		return game.nextTurnSinglePlayer();
 	}
 
 	private GameInfo nextDraftStep(GameInfo container, EventMsg msg) {

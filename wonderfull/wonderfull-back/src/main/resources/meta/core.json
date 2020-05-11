@@ -317,7 +317,7 @@
 		"type": "SCIENCE",
 		"recycle": "GOLD",
 		"cost": "SCIENCE*7",
-		"bonus": "BUSINESSMAN*2",
+		"bonus": "BUSINESSMAN",
 		"scoring": {
 			"empire": "BUSINESSMAN"
 		},
@@ -328,7 +328,6 @@
 		"type": "SCIENCE",
 		"recycle": "SCIENCE",
 		"cost": "SCIENCE*7",
-		"bonus": "BUSINESSMAN*2, KRYSTALIUM",
 		"scoring": {
 			"empire": "SCIENCE*3"
 		},
@@ -642,6 +641,16 @@
 			"empire": "SCIENCE"
 		},
 		"occurence": 2
+	},
+	{
+		"name": "secret_society",
+		"type": "GOLD",
+		"recycle": "GOLD",
+		"cost": "GOLD*3, KRYSTALIUM",		
+		"scoring": {
+			"empire": "BUSINESSMAN"
+		},
+		"occurence": 1
 	},
 	{
 		"name": "museum",

@@ -4,9 +4,17 @@
     <v-card>
       <v-card-title>Create a new game</v-card-title>
       <v-card-text>
-        <v-row>
+        <v-row dense>
+          <v-col cols="12">
+            <v-banner>
+              Mode : {{startingMode}}
+            </v-banner>
+          </v-col>
           <v-col cols="12">
             <v-autocomplete v-model="selected" :items="possiblesUsers" chips label="Users" item-text="label" item-value="name" multiple />
+          </v-col>
+          <v-col v-if="soloMode" cols="12">
+            <v-select v-model="soloScenario" :items="soloScenarii" label="Scenario" />
           </v-col>
           <v-col cols="12">
             <div class="d-flex">
@@ -14,6 +22,7 @@
               <v-checkbox v-model="additionalDict" label="War or Peace" value="wop" class="ml-1" />
             </div>
           </v-col>
+
           <v-col cols="12">
             <v-select v-model="startingEmpire" :items="startingEmpires" label="Starting empire" />
           </v-col>
@@ -95,12 +104,49 @@ export default {
       }, {
         value: "F",
         text: "Random F faces (corruption)"
-      }]
+      }],
+      soloScenario: "to_the_center_of_earth",
+      soloScenarii: [{
+          value: "to_the_center_of_earth",
+          text: "To The Center of Earth"
+        },
+        {
+          value: "a_better_world",
+          text: "A Better World"
+        },
+        {
+          value: "they_are_among_us",
+          text: "They're Among Us"
+        },
+        {
+          value: "back_to_the_futur",
+          text: "Back To The Futur"
+        },
+        {
+          value: "end_of_times",
+          text: "End Of Times"
+        },
+        {
+          value: "money_has_no_smell",
+          text: "Money Has No Smell"
+        }
+      ]
     };
   },
   computed: {
+    soloMode() {
+      return this.selected.length === 0;
+    },
+    startingMode() {
+      if (this.soloMode)
+        return "Solo";
+      else if (this.selected.length === 1)
+        return "Two players";
+      else
+        return "Multi players";
+    },
     startingIsPossible() {
-      return this.selected.length > 0 && this.selected.length < 5;
+      return this.selected.length < 5;
     },
     uid() {
       return this.$store.getters['user/uid'];
@@ -142,10 +188,12 @@ export default {
         });
       }
 
+      const startingWith = this.soloMode ? this.soloScenario : this.startingEmpire;
+
       this.$axios.post("game/bootstrap", {
           users,
           dictionaries,
-          startingEmpire: this.startingEmpire
+          startingEmpire: startingWith
         })
         .then(r => {
           const id = r.data.externalId;
@@ -173,9 +221,14 @@ export default {
       return g.users.map(u => u.label).join(', ');
     },
     formatDict(g) {
-      const conf = this.startingEmpires.find(s => s.value === g.startingEmpire) || {
-        text: g.startingEmpire
-      };
+      var conf = this.startingEmpires.find(s => s.value === g.startingEmpire);
+      if (!conf)
+        conf = this.soloScenarii.find(s => s.value === g.startingEmpire);
+
+      if (!conf)
+        conf = {
+          text: g.startingEmpire
+        };
 
       var text = conf.text;
       if (g.dictionaries.indexOf("ks0") >= 0)
